@@ -59,6 +59,9 @@ Aquí tienes algunos de los comandos esenciales para trabajar con Docker:
 ```bash
 docker run -it ubuntu              # Ejecuta un contenedor Ubuntu de forma interactiva
 docker run -d -p 8080:80 nginx     # Ejecuta Nginx en segundo plano y expone el puerto 80 al 8080 local
+
+docker create helloword:latest     # Crea un contenedos apartir de una imagen ya construida (build)
+docker create --name webserver  helloword:latest # Crea un contenedos apartir de una imagen ya construida (build) y le damos un nombre 
 ```
 
 ### 📄 Listar contenedores
@@ -86,6 +89,7 @@ docker rmi <image_id>              # Elimina una imagen
 
 ```bash
 docker build -t miapp:v1 .         # Construye una imagen con nombre y versión
+
 ```
 
 ---
