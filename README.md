@@ -83,10 +83,9 @@ docker volume ls                 # Listar volúmenes
 ```
 /
 ├── 01-introduccion/
-├── 02-imagenes-contenedores/
-├── 03-dockerfiles/
-├── 04-volumenes-redes/
-├── 05-docker-compose/
+├── 02-dockerfiles/
+├── 03-volumenes-redes/
+├── 04-docker-compose/
 ├── ejercicios/
 └── README.md
 ```
