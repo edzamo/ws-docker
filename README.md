@@ -8,6 +8,7 @@ Ideal para desarrolladores, DevOps y cualquier persona interesada en conteneriza
 
 ## 📘 Contenido del Curso
 
+
 - Introducción a Docker  
 - Instalación de Docker  
 - Imágenes y Contenedores  
@@ -15,6 +16,13 @@ Ideal para desarrolladores, DevOps y cualquier persona interesada en conteneriza
 - Volúmenes y Redes  
 - Docker Compose  
 - Buenas prácticas  
+- Introducción a Docker
+- Instalación de Docker
+- Imágenes y Contenedores
+- Dockerfiles
+- Volúmenes y Redes
+- Docker Compose
+- Buenas prácticas
 - Casos reales y ejercicios prácticos
 
 ---
@@ -106,4 +114,6 @@ Este curso es de código abierto bajo la licencia MIT.
 ---
 
 ¡Si te sirve este curso, no olvides darle ⭐ al repositorio!
+
+
 
