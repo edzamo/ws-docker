@@ -1,0 +1,7 @@
+# Proyecto externo clonado para el laboratorio (tiene su propio repo/remote)
+05-laboratorio-microservicios/poc-credit-evaluation/
+
+# Artefactos de build (por si se compila fuera del proyecto clonado)
+target/
+node_modules/
+dist/
