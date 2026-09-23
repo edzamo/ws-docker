@@ -1,170 +1,184 @@
-# 🧪 Laboratorio Final: Microservicios con Docker (Quarkus + PostgreSQL)
+# 🧪 Laboratorio Final: Deployar `poc-credit-evaluation` con Docker
 
-Este es el ejercicio de cierre del curso. El objetivo es tomar un proyecto real —una aplicación con **backend en Quarkus**, **base de datos PostgreSQL** y **3 microservicios (frontend/backend)**— y aplicar todo lo visto: Dockerfiles, volúmenes, redes, variables de entorno, Docker Compose y publicación en Docker Hub.
+Este es el ejercicio de cierre del curso, y a diferencia de las carpetas anteriores (que son píldoras de un solo tema), aquí vamos a **aprender haciendo, paso a paso**, aplicando todo el curso sobre un proyecto real tuyo:
 
-No se trata de escribir la aplicación desde cero: se asume que ya tienes el proyecto (o los proyectos) de Quarkus y los microservicios front/back. Aquí lo que se practica es **contenerizarlos y orquestarlos**.
+🔗 [https://github.com/edzamo/poc-credit-evaluation](https://github.com/edzamo/poc-credit-evaluation)
 
----
+👉 Para seguirlo como clase, con analogía de manzanas y explicación de cada paso, empieza por [GUIA-CONTENERIZACION-MICROSERVICIOS.md](GUIA-CONTENERIZACION-MICROSERVICIOS.md).
 
-## 🎯 Objetivos del laboratorio
+📚 Material de estudio sobre la tecnología del proyecto (no es de Docker): [ARQUITECTURA-QUARKUS.md](ARQUITECTURA-QUARKUS.md).
 
-1. Crear un `Dockerfile` por cada servicio (cada microservicio y el frontend).
-2. Levantar todo el stack (PostgreSQL + microservicios + frontend) con un único `docker-compose.yml`.
-3. Conectar los servicios entre sí por red interna de Docker (no por `localhost`).
-4. Persistir los datos de PostgreSQL con un volumen.
-5. Configurar cada servicio mediante variables de entorno (sin credenciales hardcodeadas).
-6. Construir, etiquetar y **subir las imágenes a Docker Hub**.
+No vamos a escribir código de aplicación: el proyecto ya existe y ya trae sus `Dockerfile` y `docker-compose.yml`. Lo que vamos a practicar es el **flujo completo de un DevOps/desarrollador con Docker**: clonar → entender la arquitectura → compilar los artefactos → construir imágenes → levantar el stack → versionar y publicar en Docker Hub. Ese es el objetivo real del laboratorio: recorrer ese flujo una vez, entendiendo cada paso, no solo copiar comandos.
+
+El siguiente paso natural después de este laboratorio (fuera del alcance de este curso de Docker) es tomar esas mismas imágenes publicadas en Docker Hub y desplegarlas en **Minikube** — lo dejamos anotado al final como continuación.
 
 ---
 
-## 📂 Estructura sugerida
+## 🏗️ Qué vamos a deployar
 
-Copia o referencia aquí tu proyecto existente, respetando una carpeta por servicio:
+`poc-credit-evaluation` es un ecosistema de 3 proyectos + base de datos:
 
-```text
-05-laboratorio-microservicios/
-├── postgres/                  # (opcional) scripts de inicialización de la BD
-│   └── init.sql
-├── backend-quarkus/            # Microservicio principal (Quarkus)
-│   └── Dockerfile
-├── microservicio-2/             # Segundo microservicio backend
-│   └── Dockerfile
-├── microservicio-3/             # Tercer microservicio backend
-│   └── Dockerfile
-├── frontend/                   # Aplicación frontend
-│   └── Dockerfile
-├── docker-compose.yml          # Orquesta todo el stack
-└── README.md                   # (este archivo)
-```
+| Servicio | Carpeta | Tecnología | Puerto |
+|---|---|---|---|
+| Frontend | `mms-ux-credit-evaluation` | Angular 21 servido por Nginx | 4200 |
+| Orquestador | `ms-orchestrator-credit-evaluation` | Quarkus 3.8 / Java 21 (Arquitectura Hexagonal) | 8080 |
+| Mock de riesgo | `ms-risk-mock-credit-evaluation` | Quarkus 3.8 / Java 21 | 8081 |
+| Base de datos | `postgres:16-alpine` | PostgreSQL | 5433 |
 
-> Ajusta los nombres de las carpetas a los de tu proyecto real; lo importante es que cada servicio tenga su propio `Dockerfile`.
+Flujo: el **Frontend** llama al **Orquestador**, el **Orquestador** valida la cédula, consulta en paralelo al **Mock de riesgo** (score y deudas) y persiste el resultado en **PostgreSQL**.
+
+Cada microservicio Quarkus ya trae su propio `Dockerfile.jvm` (multi-stage: build con Maven + runtime JRE liviano), y el frontend trae un `Dockerfile` (multi-stage: build con Node + servir con Nginx). El `docker-compose.yml` del repo ya conecta todo por una red interna (`credit-network`) y persiste Postgres en un volumen (`postgres-data`).
 
 ---
 
-## 1️⃣ Dockerfile por servicio
+## Paso 0 — Prerrequisitos
 
-### Backend Quarkus (ejemplo)
-
-Quarkus genera un jar ejecutable (`quarkus-run.jar`) tras `./mvnw package`. Un `Dockerfile` típico en modo JVM:
-
-```dockerfile
-FROM eclipse-temurin:21-jre
-
-WORKDIR /app
-COPY target/quarkus-app/ /app/
-
-EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "/app/quarkus-run.jar"]
-```
-
-### Microservicios / frontend
-
-Sigue el mismo patrón: imagen base acorde a la tecnología, copiar el artefacto ya compilado (jar, build de node, etc.), exponer el puerto y definir el comando de arranque. Revisa [01-documentation/01.-init.md](../01-documentation/01.-init.md) para la estructura básica de un Dockerfile.
+- Docker 24+ y Docker Compose v2+ (`docker compose version`)
+- Java 21 y Maven (instalables con SDKMAN; el repo **no trae** el wrapper `./mvnw`)
+- Cuenta en [Docker Hub](https://hub.docker.com/signup)
+- Git
 
 ---
 
-## 2️⃣ docker-compose.yml del stack
-
-```yaml
-version: "3.9"
-
-services:
-  postgres:
-    image: postgres:16
-    environment:
-      POSTGRES_DB: labdb
-      POSTGRES_USER: lab
-      POSTGRES_PASSWORD: labpass
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-
-  backend-quarkus:
-    build: ./backend-quarkus
-    environment:
-      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/labdb
-      QUARKUS_DATASOURCE_USERNAME: lab
-      QUARKUS_DATASOURCE_PASSWORD: labpass
-    depends_on:
-      - postgres
-    ports:
-      - "8080:8080"
-
-  microservicio-2:
-    build: ./microservicio-2
-    depends_on:
-      - postgres
-    ports:
-      - "8081:8080"
-
-  microservicio-3:
-    build: ./microservicio-3
-    depends_on:
-      - postgres
-    ports:
-      - "8082:8080"
-
-  frontend:
-    build: ./frontend
-    depends_on:
-      - backend-quarkus
-    ports:
-      - "3000:3000"
-
-volumes:
-  pgdata:
-```
-
-Puntos clave a repasar antes de escribir el tuyo:
-
-- **Red**: todos los servicios de un mismo `docker-compose.yml` se ven entre sí por su *nombre de servicio* (`postgres`, no `localhost`). Ver [01-documentation/04.-manager-network.md](../01-documentation/04.-manager-network.md).
-- **Volumen**: `pgdata` evita perder los datos de Postgres cada vez que se recrea el contenedor. Ver [01-documentation/03.-manager-volumen.md](../01-documentation/03.-manager-volumen.md).
-- **Variables de entorno**: nunca hardcodear usuario/password en el Dockerfile; van en `environment:` o en un `.env`. Ver [01-documentation/06.-manager-env-variables.md](../01-documentation/06.-manager-env-variables.md).
-
----
-
-## 3️⃣ Levantar y probar el stack
+## Paso 1 — Clonar el proyecto
 
 ```bash
-docker compose up -d --build   # construye las imágenes y levanta todo
-docker compose ps              # verifica que todos los servicios estén "healthy"/"running"
-docker compose logs -f backend-quarkus   # revisar logs de un servicio puntual
-docker compose down            # detener y limpiar
+git clone https://github.com/edzamo/poc-credit-evaluation.git
+cd poc-credit-evaluation
 ```
+
+---
+
+## Paso 2 — Entender la arquitectura antes de tocar nada
+
+Antes de compilar, lee el `README.md` del propio repo: trae diagramas de arquitectura (ecosistema completo, hexagonal del orquestador, capas del mock) y la regla de negocio. Fíjate especialmente en:
+
+- `docker-compose.yml`: cómo cada servicio se conecta a los demás **por nombre de servicio** (`ms-risk-mock`, `postgres`), no por `localhost`. Repasa [01-documentation/04.-manager-network.md](../01-documentation/04.-manager-network.md) si no te queda claro por qué.
+- Las variables `DB_URL`, `DB_USERNAME`, `RISK_SERVICE_URL`, etc. definidas en `environment:` de cada servicio. Repasa [01-documentation/06.-manager-env-variables.md](../01-documentation/06.-manager-env-variables.md).
+- El volumen `postgres-data`, que evita perder los datos si se recrea el contenedor. Repasa [01-documentation/03.-manager-volumen.md](../01-documentation/03.-manager-volumen.md).
+
+---
+
+## Paso 3 — Compilar los artefactos de los microservicios Quarkus
+
+Los Dockerfiles de este proyecto compilan dentro de la imagen (multi-stage), pero para aprender el flujo completo, primero compila y corre los tests localmente:
+
+```bash
+cd ms-risk-mock-credit-evaluation
+mvn package -DskipTests
+cd ..
+
+cd ms-orchestrator-credit-evaluation
+mvn package -DskipTests
+cd ..
+```
+
+> El frontend necesita un `package-lock.json` que el repo no trae; el detalle de cómo generarlo con un contenedor descartable está en [GUIA-CONTENERIZACION-MICROSERVICIOS.md](GUIA-CONTENERIZACION-MICROSERVICIOS.md).
+
+Esto genera `target/quarkus-app/` en cada microservicio (el `quarkus-run.jar` + dependencias). Es exactamente lo que la etapa de build del `Dockerfile.jvm` de cada servicio vuelve a hacer dentro del contenedor.
+
+---
+
+## Paso 4 — Construir las imágenes Docker
+
+Puedes construir cada imagen individualmente (para entender qué hace cada `Dockerfile`) o dejar que Compose lo haga todo:
+
+```bash
+# Individualmente, por ejemplo el mock de riesgo:
+docker build -t poc/ms-risk-mock-credit-evaluation:1.0.0 \
+  -f ms-risk-mock-credit-evaluation/src/main/docker/Dockerfile.jvm \
+  ms-risk-mock-credit-evaluation
+
+# O todas de una vez con Compose (recomendado):
+docker compose build
+```
+
+Revisa `ms-orchestrator-credit-evaluation/src/main/docker/Dockerfile.jvm` y `mms-ux-credit-evaluation/Dockerfile`: ambos son **multi-stage builds** (una etapa compila, otra solo copia el artefacto final a una imagen mínima). Compáralo con lo visto en [01-documentation/01.-init.md](../01-documentation/01.-init.md).
+
+---
+
+## Paso 5 — Levantar el stack completo y probarlo
+
+```bash
+docker compose up -d --build
+docker compose ps          # todos deben quedar "healthy"
+docker compose logs -f ms-orchestrator
+```
+
+Verifica en el navegador / con `curl`:
+
+| Servicio | URL |
+|---|---|
+| Frontend | [http://localhost:4200](http://localhost:4200) |
+| Swagger Orquestador | [http://localhost:8080/swagger-ui](http://localhost:8080/swagger-ui) |
+| Swagger Mock de riesgo | [http://localhost:8081/swagger-ui](http://localhost:8081/swagger-ui) |
 
 Checklist de validación:
 
-- [ ] El backend Quarkus conecta correctamente a PostgreSQL.
-- [ ] Los 3 microservicios responden en sus puertos.
-- [ ] El frontend consume el/los backend(s) sin errores de red.
-- [ ] Si se elimina y recrea el contenedor de Postgres, los datos persisten (gracias al volumen).
+- [ ] `docker compose ps` muestra los 4 servicios (`postgres`, `ms-risk-mock`, `ms-orchestrator`, `mms-ux`) en estado healthy/running.
+- [ ] El frontend en `:4200` carga el formulario de evaluación de crédito.
+- [ ] Enviar una solicitud desde el formulario devuelve APROBADO/RECHAZADO (confirma que Orquestador → Mock → Postgres funciona de punta a punta).
+- [ ] Si corres `docker compose down && docker compose up -d`, los datos previos en Postgres siguen ahí (gracias al volumen `postgres-data`).
+
+```bash
+docker compose down   # detener y limpiar cuando termines
+```
 
 ---
 
-## 4️⃣ Publicar las imágenes en Docker Hub
+## Paso 6 — Versionar y etiquetar las imágenes para tu cuenta de Docker Hub
 
-Repite estos pasos por cada servicio que quieras publicar (backend, microservicios, frontend):
+El `docker-compose.yml` ya construye las imágenes como `austro/ms-risk-mock-credit-evaluation:1.0.0`, etc. Para publicarlas necesitas re-etiquetarlas con **tu usuario de Docker Hub**:
 
 ```bash
 docker login
 
-docker build -t tu_usuario/lab-backend-quarkus:1.0 ./backend-quarkus
-docker tag tu_usuario/lab-backend-quarkus:1.0 tu_usuario/lab-backend-quarkus:latest
-
-docker push tu_usuario/lab-backend-quarkus:1.0
-docker push tu_usuario/lab-backend-quarkus:latest
+docker tag austro/ms-risk-mock-credit-evaluation:1.0.0     tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
+docker tag austro/ms-orchestrator-credit-evaluation:1.0.0  tu_usuario_dockerhub/ms-orchestrator-credit-evaluation:1.0.0
+docker tag austro/mms-ux-credit-evaluation:1.0.0           tu_usuario_dockerhub/mms-ux-credit-evaluation:1.0.0
 ```
 
-Guía paso a paso completa (crear cuenta, `docker login`, `tag`, `push`, verificación) en [01-documentation/05.-manager-dockerhub.md](../01-documentation/05.-manager-dockerhub.md).
+Sobre versionado: cada vez que cambies algo relevante en un servicio, sube el número de tag (`1.0.1`, `1.1.0`, etc.) en vez de sobrescribir `1.0.0` — así puedes hacer rollback y saber exactamente qué versión corre en cada ambiente. Mantener además un tag `latest` apuntando a la versión más reciente es una práctica común.
+
+---
+
+## Paso 7 — Publicar (push) en Docker Hub
+
+```bash
+docker push tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
+docker push tu_usuario_dockerhub/ms-orchestrator-credit-evaluation:1.0.0
+docker push tu_usuario_dockerhub/mms-ux-credit-evaluation:1.0.0
+```
+
+Verifica en [hub.docker.com](https://hub.docker.com) → **Repositories** que aparezcan las 3 imágenes. Guía completa (crear cuenta, `login`, `tag`, `push`, verificación) en [01-documentation/05.-manager-dockerhub.md](../01-documentation/05.-manager-dockerhub.md).
+
+Prueba que cualquiera pueda usarlas sin tener el código fuente:
+
+```bash
+docker pull tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
+```
 
 ---
 
 ## ✅ Resultado esperado
 
-Al finalizar deberías tener:
+- Entendiste y corriste localmente el ecosistema `poc-credit-evaluation` (Angular + 2 microservicios Quarkus + PostgreSQL) con Docker Compose.
+- Compilaste los artefactos Quarkus y viste cómo el `Dockerfile.jvm` los empaqueta en una imagen mínima (multi-stage build).
+- Versionaste y publicaste las 3 imágenes en tu cuenta de Docker Hub, listas para hacer `docker pull` desde cualquier máquina.
 
-- Un `Dockerfile` funcional por cada servicio (Quarkus, 2 microservicios, frontend).
-- Un `docker-compose.yml` que levanta todo el stack con un solo comando.
-- Datos de PostgreSQL persistidos en un volumen.
-- Las imágenes de cada servicio publicadas en tu cuenta de Docker Hub, listas para hacer `docker pull` desde cualquier máquina.
+---
+
+## 🚀 Próximo paso: llevarlo a Minikube (fuera de este curso de Docker)
+
+Una vez las imágenes están en Docker Hub, el siguiente salto natural es orquestarlas con Kubernetes en local:
+
+```bash
+minikube start
+kubectl create deployment ms-risk-mock --image=tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
+kubectl create deployment ms-orchestrator --image=tu_usuario_dockerhub/ms-orchestrator-credit-evaluation:1.0.0
+kubectl create deployment mms-ux --image=tu_usuario_dockerhub/mms-ux-credit-evaluation:1.0.0
+kubectl expose deployment mms-ux --type=NodePort --port=80
+minikube service mms-ux
+```
+
+Esto ya no es parte de este curso de Docker (es un curso aparte de Kubernetes), pero vale la pena anotarlo: como las imágenes ya están versionadas y publicadas en Docker Hub, Minikube (o cualquier clúster) puede simplemente hacer `pull` de ellas por nombre y tag — que es justo el valor de haber hecho bien los pasos 6 y 7.
