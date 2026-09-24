@@ -126,37 +126,51 @@ docker compose down   # detener y limpiar cuando termines
 
 ---
 
-## Paso 6 — Versionar y etiquetar las imágenes para tu cuenta de Docker Hub
+## Paso 6 — Versionar: la versión vive en el código, no en el tag
 
-El `docker-compose.yml` ya construye las imágenes como `austro/ms-risk-mock-credit-evaluation:1.0.0`, etc. Para publicarlas necesitas re-etiquetarlas con **tu usuario de Docker Hub**:
+La versión de cada servicio se define **una sola vez, en su archivo de proyecto**, y el tag de la imagen se deriva de ahí:
 
-```bash
-docker login
+| Servicio | Dónde se define la versión |
+|---|---|
+| Backends Quarkus | `pom.xml` (`<version>`) — y `quarkus.application.version` en `application.properties` debe coincidir |
+| Frontend Angular | `package.json` (`"version"`) |
 
-docker tag austro/ms-risk-mock-credit-evaluation:1.0.0     tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
-docker tag austro/ms-orchestrator-credit-evaluation:1.0.0  tu_usuario_dockerhub/ms-orchestrator-credit-evaluation:1.0.0
-docker tag austro/mms-ux-credit-evaluation:1.0.0           tu_usuario_dockerhub/mms-ux-credit-evaluation:1.0.0
+Para publicar la versión `1.0.1`, edita esos archivos (sin `-SNAPSHOT`), regenera el `package-lock.json` del frontend y reconstruye. Esto evita que el tag de la imagen diga una cosa y el artefacto otra. El razonamiento y las prácticas de industria están en [GUIA-CONTENERIZACION-MICROSERVICIOS.md](GUIA-CONTENERIZACION-MICROSERVICIOS.md).
+
+**Convención de nombres** (Docker Hub gratuito solo permite `cuenta/repositorio`, así que la clasificación va como prefijo en el nombre):
+
+```text
+<usuario-dockerhub>/austro-<servicio>:<versión>
+edzamo13/austro-ms-orchestrator-credit-evaluation:1.0.1
 ```
-
-Sobre versionado: cada vez que cambies algo relevante en un servicio, sube el número de tag (`1.0.1`, `1.1.0`, etc.) en vez de sobrescribir `1.0.0` — así puedes hacer rollback y saber exactamente qué versión corre en cada ambiente. Mantener además un tag `latest` apuntando a la versión más reciente es una práctica común.
 
 ---
 
-## Paso 7 — Publicar (push) en Docker Hub
+## Paso 7 — Construir y publicar en Docker Hub con el script
 
 ```bash
-docker push tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
-docker push tu_usuario_dockerhub/ms-orchestrator-credit-evaluation:1.0.0
-docker push tu_usuario_dockerhub/mms-ux-credit-evaluation:1.0.0
+docker login                                   # una vez; usa un access token de Docker Hub
+./scripts/publicar-imagenes.sh                 # solo construye (prueba en seco)
+./scripts/publicar-imagenes.sh --push          # construye y publica las 3 imágenes
 ```
 
-Verifica en [hub.docker.com](https://hub.docker.com) → **Repositories** que aparezcan las 3 imágenes. Guía completa (crear cuenta, `login`, `tag`, `push`, verificación) en [01-documentation/05.-manager-dockerhub.md](../01-documentation/05.-manager-dockerhub.md).
+El script [scripts/publicar-imagenes.sh](scripts/publicar-imagenes.sh):
 
-Prueba que cualquiera pueda usarlas sin tener el código fuente:
+- Lee la versión de cada `pom.xml` / `package.json`.
+- Se detiene si la versión es `-SNAPSHOT`, si `pom.xml` y `application.properties` no coinciden, o si el tag ya existe en el registro.
+- Construye cada imagen con labels OCI (versión, commit, fuente, fecha).
+- Publica y muestra el **digest** (`sha256:...`) de cada imagen.
+
+Variables opcionales: `DOCKER_USER` (por defecto `edzamo13`) y `PREFIX` (por defecto `austro`).
+
+Verifica en [hub.docker.com](https://hub.docker.com) → **Repositories**, o desde la terminal:
 
 ```bash
-docker pull tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
+curl -s https://hub.docker.com/v2/repositories/edzamo13/austro-ms-orchestrator-credit-evaluation/tags/
+docker pull edzamo13/austro-ms-orchestrator-credit-evaluation:1.0.1
 ```
+
+Guía general de Docker Hub (cuenta, `login`, `tag`, `push`) en [01-documentation/05.-manager-dockerhub.md](../01-documentation/05.-manager-dockerhub.md).
 
 ---
 
@@ -174,11 +188,13 @@ Una vez las imágenes están en Docker Hub, el siguiente salto natural es orques
 
 ```bash
 minikube start
-kubectl create deployment ms-risk-mock --image=tu_usuario_dockerhub/ms-risk-mock-credit-evaluation:1.0.0
-kubectl create deployment ms-orchestrator --image=tu_usuario_dockerhub/ms-orchestrator-credit-evaluation:1.0.0
-kubectl create deployment mms-ux --image=tu_usuario_dockerhub/mms-ux-credit-evaluation:1.0.0
+kubectl create deployment ms-risk-mock --image=edzamo13/austro-ms-risk-mock-credit-evaluation:1.0.1
+kubectl create deployment ms-orchestrator --image=edzamo13/austro-ms-orchestrator-credit-evaluation:1.0.1
+kubectl create deployment mms-ux --image=edzamo13/austro-mms-ux-credit-evaluation:1.0.1
 kubectl expose deployment mms-ux --type=NodePort --port=80
 minikube service mms-ux
 ```
 
 Esto ya no es parte de este curso de Docker (es un curso aparte de Kubernetes), pero vale la pena anotarlo: como las imágenes ya están versionadas y publicadas en Docker Hub, Minikube (o cualquier clúster) puede simplemente hacer `pull` de ellas por nombre y tag — que es justo el valor de haber hecho bien los pasos 6 y 7.
+
+Dos puntos a resolver en esa etapa: PostgreSQL se descarga directo como `postgres:16-alpine` (no hay imagen propia), y el frontend trae `apiBaseUrl: http://localhost:8080` fijo al compilar, que dentro de Kubernetes requerirá un proxy o un Ingress.
